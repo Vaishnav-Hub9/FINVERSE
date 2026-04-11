@@ -317,3 +317,30 @@ body {
 .recharts-cartesian-axis-tick text {
   fill: rgba(255, 255, 255, 0.7);
 }
+
+@media (max-width: 991px) {
+  .sidebar {
+    position: fixed;
+    left: -240px;
+    top: 0;
+    transition: left 0.3s ease;
+    z-index: 1050;
+  }
+  .sidebar.sidebar-open {
+    left: 0;
+  }
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1049;
+  }
+  .sidebar-overlay.show {
+    display: block;
+  }
+  .main-content {
+    padding: 1rem;
+  }
+}
+

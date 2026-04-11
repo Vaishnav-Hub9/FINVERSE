@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, LayoutDashboard, LineChart, Building2, TrendingUp, DollarSign, Brain, CheckCircle2, ChevronRight } from 'lucide-react';
-import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart as RechartsLineChart, Line } from 'recharts';
+import { Eye, EyeOff, LayoutDashboard, LineChart, Building2, TrendingUp, DollarSign, Brain, CheckCircle2, ChevronRight, Menu, Trash2 } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart as RechartsLineChart, Line, ResponsiveContainer } from 'recharts';
 
 export default function App() {
   const [view, setView] = useState('login');
@@ -39,6 +39,40 @@ export default function App() {
     { id: 2, name: 'SBI Current', balance: 2000, type: 'current', cleared: false }
   ]);
 
+  const [reminders, setReminders] = useState([
+    { id: 1, title: 'Electricity Bill', amount: 1200, dueDate: '2026-04-15', category: 'Bills', recurring: 'monthly', autoDetected: false, paid: false },
+    { id: 2, title: 'Netflix Subscription', amount: 649, dueDate: '2026-04-20', category: 'Bills', recurring: 'monthly', autoDetected: true, paid: false },
+    { id: 3, title: 'Home Loan EMI', amount: 15000, dueDate: '2026-04-05', category: 'Bills', recurring: 'monthly', autoDetected: false, paid: false }
+  ]);
+
+  useEffect(() => {
+    const billKeywords = ['netflix', 'spotify', 'amazon prime', 'hotstar', 'jio', 'airtel', 'electricity', 'internet', 'insurance'];
+    const recurring = transactions.filter(t => 
+      billKeywords.some(k => t.payee.toLowerCase().includes(k))
+    );
+    recurring.forEach(t => {
+      setReminders(prev => {
+        const alreadyExists = prev.some(r => r.title.toLowerCase() === t.payee.toLowerCase());
+        if (!alreadyExists) {
+          const nextDue = new Date(t.date);
+          nextDue.setMonth(nextDue.getMonth() + 1);
+          return [...prev, {
+            id: Date.now() + Math.random(),
+            title: t.payee,
+            amount: t.amount,
+            dueDate: nextDue.toISOString().split('T')[0],
+            category: t.category,
+            recurring: 'monthly',
+            autoDetected: true,
+            paid: false
+          }];
+        }
+        return prev;
+      });
+    });
+  }, [transactions]);
+
+
   const totalIncome = transactions.filter(t => t.category === 'Income').reduce((s, t) => s + t.inflow, 0);
   const totalSpent = transactions.filter(t => t.outflow > 0 && t.category !== 'Income').reduce((s, t) => s + t.outflow, 0);
   const buffer = totalIncome - totalSpent;
@@ -66,6 +100,7 @@ export default function App() {
           budgetCategories={budgetCategories} setBudgetCategories={setBudgetCategories}
           stocks={stocks} setStocks={setStocks}
           bankAccounts={bankAccounts} setBankAccounts={setBankAccounts}
+          reminders={reminders} setReminders={setReminders}
           totalIncome={totalIncome} totalSpent={totalSpent} buffer={buffer}
           totalRegret={totalRegret} potentialSavings={potentialSavings}
           regretRatio={regretRatio} disciplineScore={disciplineScore}
@@ -285,13 +320,15 @@ function Onboarding({ setView, user, setUser }) {
 
 function Dashboard({ 
   user, view, setView, transactions, setTransactions, budgetCategories, setBudgetCategories,
-  stocks, setStocks, bankAccounts, setBankAccounts, totalIncome, totalSpent, buffer,
+  stocks, setStocks, bankAccounts, setBankAccounts, reminders, setReminders, totalIncome, totalSpent, buffer,
   totalRegret, potentialSavings, regretRatio, disciplineScore, futureValue, moneyLost, clearedBalance, unclearedBalance, workingBalance 
 }) {
   const [tab, setTab] = useState('plan');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
     <div className="app-container">
-      <div className="sidebar p-3 glass-card">
+      <div className={`sidebar-overlay ${sidebarOpen ? 'show' : ''}`} onClick={() => setSidebarOpen(false)}></div>
+      <div className={`sidebar p-3 glass-card ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="text-center mb-4 mt-2">
           <div className="rounded-circle bg-cyan text-black d-inline-flex align-items-center justify-content-center fw-bold fs-3 mb-2" style={{width: 60, height: 60, backgroundColor: '#38bdf8'}}>
             {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
@@ -315,12 +352,15 @@ function Dashboard({
       </div>
 
       <div className="main-content">
+        <div className="d-lg-none d-flex mb-3">
+          <button className="btn btn-icon" onClick={() => setSidebarOpen(true)}><Menu size={24}/></button>
+        </div>
         {tab === 'plan' && (
           <PlanTab 
             transactions={transactions} setTransactions={setTransactions} 
             budgetCategories={budgetCategories} setBudgetCategories={setBudgetCategories}
             buffer={buffer} totalRegret={totalRegret} regretRatio={regretRatio} potentialSavings={potentialSavings}
-            bankAccounts={bankAccounts}
+            bankAccounts={bankAccounts} reminders={reminders} setReminders={setReminders}
           />
         )}
         {tab === 'reflect' && (
@@ -347,11 +387,36 @@ function Dashboard({
   );
 }
 
-function PlanTab({ transactions, setTransactions, budgetCategories, setBudgetCategories, buffer, totalRegret, regretRatio, potentialSavings, bankAccounts }) {
+function PlanTab({ transactions, setTransactions, budgetCategories, setBudgetCategories, buffer, totalRegret, regretRatio, potentialSavings, bankAccounts, reminders, setReminders }) {
   const handleAssignChange = (id, val) => {
     setBudgetCategories(prev => prev.map(c => c.id === id ? { ...c, assigned: Number(val) || 0 } : c));
   };
   const [showAdd, setShowAdd] = useState(false);
+  const [budgetFilter, setBudgetFilter] = useState('all');
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState({ name: '', group: 'Bills', assigned: '' });
+  const [showAddReminder, setShowAddReminder] = useState(false);
+  const [newReminder, setNewReminder] = useState({ title: '', amount: '', dueDate: '', category: 'Bills', recurring: 'None' });
+
+  const getFilteredCategories = (group) => {
+    return budgetCategories.filter(c => {
+      if (c.group !== group) return false;
+      const act = transactions.filter(t => t.category === c.name && t.outflow > 0).reduce((s,t) => s + t.outflow, 0)
+        + (transactions.filter(t => t.category === group && t.outflow > 0).reduce((s,t)=>s+t.outflow, 0) / budgetCategories.filter(bc=>bc.group===group).length);
+      const available = c.assigned - act;
+      if (budgetFilter === 'underfunded') return available < 0;
+      if (budgetFilter === 'overfunded') return available > c.assigned * 0.5;
+      return true;
+    });
+  };
+
+  const getUnderfundedCount = () => {
+    return budgetCategories.filter(c => {
+      const act = transactions.filter(t => t.category === c.name && t.outflow > 0).reduce((s,t) => s + t.outflow, 0)
+        + (transactions.filter(t => t.category === c.group && t.outflow > 0).reduce((s,t)=>s+t.outflow, 0) / budgetCategories.filter(bc=>bc.group===c.group).length);
+      return c.assigned - act < 0;
+    }).length;
+  };
 
   const getGroupStats = (group) => {
     const cats = budgetCategories.filter(c => c.group === group);
@@ -368,39 +433,97 @@ function PlanTab({ transactions, setTransactions, budgetCategories, setBudgetCat
   const lateNightRegrets = transactions.filter(t => t.isRegret && parseInt(t.time) >= 22);
   const lateNightTotal = lateNightRegrets.reduce((s, t) => s + t.amount, 0);
 
+  const unpaidTotal = reminders.filter(r => !r.paid).reduce((s,r) => s + r.amount, 0);
+  const overdue = reminders.filter(r => !r.paid && new Date(r.dueDate) < new Date());
+
   return (
     <div className="row h-100">
-      <div className="col-lg-8 d-flex flex-column">
-        <div className="d-flex justify-content-between align-items-center mb-4 glass-card p-3">
+      <div className="col-12 col-lg-8 d-flex flex-column mb-4 mb-lg-0">
+        
+        {/* Reminders Section */}
+        <div className="mb-4 w-100">
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <h5 className="mb-0 fw-bold">📅 Upcoming Bills & Reminders</h5>
+            <button className="btn btn-sm btn-outline-info rounded-pill" onClick={()=>setShowAddReminder(true)}>＋ Add Reminder</button>
+          </div>
+          <div className="d-flex overflow-auto gap-3 pb-2" style={{scrollbarWidth:'none'}}>
+            {reminders.map(r => {
+               const daysUntil = Math.ceil((new Date(r.dueDate) - new Date()) / (1000*60*60*24));
+               const badgeColor = daysUntil <= 3 ? 'bg-danger' : daysUntil <= 7 ? 'bg-warning' : 'bg-success';
+               const badgeText = daysUntil <= 3 ? 'Due Soon!' : daysUntil <= 7 ? 'This Week' : 'Upcoming';
+               return (
+                 <div key={r.id} className="glass-card p-3 position-relative flex-shrink-0" style={{width: 250, opacity: r.paid ? 0.5 : 1}}>
+                    {r.paid && <div className="position-absolute top-50 start-0 w-100 border-top border-success border-2 z-1"></div>}
+                    <div className="d-flex justify-content-between mb-1">
+                      <span className="fw-bold text-truncate w-75">{r.title}</span>
+                      <span className={`badge ${badgeColor}`}>{badgeText}</span>
+                    </div>
+                    <div className="text-danger fw-bold mb-1">₹{r.amount}</div>
+                    <div className="small text-gray mb-2 d-flex justify-content-between">
+                      <span>Due: {r.dueDate}</span>
+                      {daysUntil > 0 && <span>({daysUntil} days)</span>}
+                    </div>
+                    {r.autoDetected && <small className="badge bg-cyan text-dark mb-2 d-inline-block">Auto-detected</small>}
+                    <div className="d-flex gap-2">
+                      {!r.paid && <button className="btn btn-sm btn-outline-success border-0 p-0 text-decoration-underline w-50" onClick={()=>{const newRema = [...reminders]; const idx = newRema.findIndex(x=>x.id===r.id); newRema[idx].paid=true; const item = newRema.splice(idx, 1)[0]; newRema.push(item); setReminders(newRema);}}>Mark Paid</button>}
+                      <button className="btn btn-sm btn-outline-danger border-0 p-0 text-decoration-underline w-50" onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))}>Delete</button>
+                    </div>
+                 </div>
+               )
+            })}
+          </div>
+          <div className="small text-gray mt-1">
+            You have ₹{unpaidTotal} in upcoming bills. {overdue.length > 0 ? overdue.length + ' bills are overdue!' : 'No overdue bills.'}
+          </div>
+        </div>
+
+        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center align-items-start gap-3 mb-4 glass-card p-3">
           <h4 className="mb-0 fw-bold">April 2026</h4>
-          <div className="text-center">
+          <div className="text-center w-100 w-md-auto text-md-center text-start">
             <span className="text-gray small text-uppercase">Safe to Spend</span>
             <h3 className={`mb-0 fw-bold ${buffer >= 0 ? 'text-success' : 'text-danger'}`}>₹{buffer}</h3>
           </div>
-          <button className="btn btn-cyan rounded-pill" onClick={()=>setShowAdd(true)}>＋ Add Transaction</button>
+          <button className="btn btn-cyan rounded-pill w-100 w-md-auto text-nowrap" onClick={()=>setShowAdd(true)}>＋ Add Transaction</button>
         </div>
 
         <div className="glass-card flex-grow-1 overflow-auto">
           <div className="p-3 border-bottom border-secondary">
-            <button className="btn btn-sm btn-cyan-outline me-2 rounded-pill">All</button>
-            <button className="btn btn-sm btn-outline-secondary me-2 rounded-pill text-gray">Underfunded</button>
-            <button className="btn btn-sm btn-outline-secondary rounded-pill text-gray">Overfunded</button>
+            <div className="btn-group mb-0 flex-wrap" role="group">
+              <button 
+                className={`btn btn-sm rounded-pill me-2 mb-2 mb-md-0 ${budgetFilter==='all' ? 'btn-cyan' : 'btn-outline-secondary text-gray'}`}
+                onClick={() => setBudgetFilter('all')}
+              >All</button>
+              <button 
+                className={`btn btn-sm rounded-pill me-2 mb-2 mb-md-0 ${budgetFilter==='underfunded' ? 'btn-danger' : 'btn-outline-secondary text-gray'}`}
+                onClick={() => setBudgetFilter('underfunded')}
+              >
+                Underfunded {budgetFilter !== 'all' && <span className="badge bg-dark ms-1">{getUnderfundedCount()}</span>}
+              </button>
+              <button 
+                className={`btn btn-sm rounded-pill mb-2 mb-md-0 ${budgetFilter==='overfunded' ? 'btn-success' : 'btn-outline-secondary text-gray'}`}
+                onClick={() => setBudgetFilter('overfunded')}
+              >Overfunded</button>
+            </div>
           </div>
           <table className="table">
-            <thead><tr><th width="30"></th><th>CATEGORY</th><th className="text-end">ASSIGNED</th><th className="text-end">ACTIVITY</th><th className="text-end">AVAILABLE</th></tr></thead>
+            <thead><tr><th width="30"></th><th>CATEGORY</th><th className="text-end d-none d-lg-table-cell">ASSIGNED</th><th className="text-end d-none d-lg-table-cell">ACTIVITY</th><th className="text-end">AVAILABLE</th></tr></thead>
             <tbody>
               {groups.map(g => {
+                const filteredCats = getFilteredCategories(g);
                 const stats = getGroupStats(g);
                 return (
                   <React.Fragment key={g}>
                     <tr className="group-header">
                       <td><ChevronRight size={16}/></td>
                       <td>{g.toUpperCase()}</td>
-                      <td className="text-end">₹{stats.sumAssigned}</td>
-                      <td className="text-end">₹{stats.sumActivity}</td>
-                      <td className={`text-end fw-bold ${stats.sumAvailable>0?'text-success':stats.sumAvailable<0?'text-danger':'text-gray'}`}>₹{stats.sumAvailable}</td>
+                      <td className="text-end d-none d-lg-table-cell">₹{stats.sumAssigned}</td>
+                      <td className="text-end d-none d-lg-table-cell">₹{Math.round(stats.sumActivity)}</td>
+                      <td className={`text-end fw-bold ${stats.sumAvailable>0?'text-success':stats.sumAvailable<0?'text-danger':'text-gray'}`}>₹{Math.round(stats.sumAvailable)}</td>
                     </tr>
-                    {budgetCategories.filter(c => c.group === g).map(c => {
+                    {filteredCats.length === 0 && budgetFilter !== 'all' && (
+                      <tr><td colSpan={5} className="text-center text-gray py-4">No {budgetFilter} categories found.</td></tr>
+                    )}
+                    {filteredCats.map(c => {
                       const activity = transactions.filter(t => (t.category === c.name || t.category === g) && t.memo?.includes(c.name)).reduce((s,t)=>s+t.outflow, 0)
                                       + (g === 'Bills' && c.name==='TV Streaming' ? transactions.find(t=>t.payee==='Netflix')?.outflow || 0 : 0); 
                       // Rough logic for prototype to match realistic numbers based on sample data if categories map loosely.
@@ -411,8 +534,8 @@ function PlanTab({ transactions, setTransactions, budgetCategories, setBudgetCat
                         <tr key={c.id}>
                           <td></td>
                           <td>{c.name}</td>
-                          <td className="text-end"><input className="inline-input text-end" value={c.assigned} onChange={(e)=>handleAssignChange(c.id, e.target.value)}/></td>
-                          <td className="text-end text-gray">₹{Math.round(act)}</td>
+                          <td className="text-end d-none d-lg-table-cell"><input className="inline-input text-end w-100" type="number" value={c.assigned} onChange={(e)=>handleAssignChange(c.id, e.target.value)}/></td>
+                          <td className="text-end text-gray d-none d-lg-table-cell">₹{Math.round(act)}</td>
                           <td className={`text-end badge-col`}><span className={`badge rounded-pill ${available>0?'bg-success':available<0?'bg-danger':'bg-secondary'}`}>₹{Math.round(available)}</span></td>
                         </tr>
                       );
@@ -423,12 +546,12 @@ function PlanTab({ transactions, setTransactions, budgetCategories, setBudgetCat
             </tbody>
           </table>
           <div className="p-3">
-             <button className="btn btn-sm btn-outline-secondary text-gray rounded-pill border-0"><DollarSign size={14}/> Add Category</button>
+             <button className="btn btn-sm btn-outline-secondary text-gray rounded-pill border-0" onClick={()=>setShowAddCategory(true)}><DollarSign size={14}/> Add Category</button>
           </div>
         </div>
       </div>
 
-      <div className="col-lg-4">
+      <div className="col-12 col-lg-4">
         <div className="glass-card h-100 p-4 d-flex flex-column">
           <h5 className="mb-0 d-flex align-items-center gap-2"><Brain className="text-purple"/> Behavioral Regrets</h5>
           <p className="text-gray small mb-4">Transactions you flagged as impulsive</p>
@@ -472,12 +595,129 @@ function PlanTab({ transactions, setTransactions, budgetCategories, setBudgetCat
           </div>
         </div>
       </div>
-      {showAdd && <AddTransactionModal close={()=>setShowAdd(false)} addTransaction={(t)=>setTransactions(prev=>[...prev, t])} bankAccounts={bankAccounts} />}
+      {showAdd && <AddTransactionModal close={()=>setShowAdd(false)} addTransaction={(t)=>setTransactions(prev=>[...prev, t])} bankAccounts={bankAccounts} budgetCategories={budgetCategories} />}
+
+      {showAddCategory && (
+        <div className="modal show d-block" style={{background:'rgba(0,0,0,0.7)', zIndex: 1055}}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content glass-card">
+              <div className="modal-header border-bottom border-secondary border-opacity-50">
+                <h5 className="modal-title fw-bold">Add Budget Category</h5>
+                <button type="button" className="btn-close" onClick={() => setShowAddCategory(false)} />
+              </div>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">Category Name</label>
+                  <input className="form-control p-2" placeholder="e.g. Gym Membership" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Group</label>
+                  <select className="form-select p-2" value={newCategory.group} onChange={e => setNewCategory({...newCategory, group: e.target.value})}>
+                    <option>Bills</option>
+                    <option>Needs</option>
+                    <option>Wants</option>
+                  </select>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Monthly Budget (₹)</label>
+                  <div className="input-group">
+                    <span className="input-group-text bg-dark border-secondary text-white">₹</span>
+                    <input type="number" className="form-control p-2" placeholder="0" value={newCategory.assigned} onChange={e => setNewCategory({...newCategory, assigned: e.target.value})} />
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer border-top border-secondary border-opacity-50">
+                <button className="btn btn-outline-secondary rounded-pill" onClick={() => setShowAddCategory(false)}>Cancel</button>
+                <button className="btn btn-cyan rounded-pill fw-bold px-4" onClick={() => {
+                  if (!newCategory.name.trim() || !newCategory.assigned) return;
+                  setBudgetCategories(prev => [...prev, {
+                    id: Date.now(),
+                    name: newCategory.name.trim(),
+                    group: newCategory.group,
+                    assigned: Number(newCategory.assigned)
+                  }]);
+                  setNewCategory({ name: '', group: 'Bills', assigned: '' });
+                  setShowAddCategory(false);
+                }}>Add Category</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddReminder && (
+        <div className="modal show d-block" style={{background:'rgba(0,0,0,0.7)', zIndex: 1055}}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content glass-card">
+              <div className="modal-header border-bottom border-secondary border-opacity-50">
+                <h5 className="modal-title fw-bold">Add Reminder</h5>
+                <button type="button" className="btn-close" onClick={() => setShowAddReminder(false)} />
+              </div>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">Title</label>
+                  <input className="form-control p-2" placeholder="e.g. Rent" value={newReminder.title} onChange={e => setNewReminder({...newReminder, title: e.target.value})} />
+                </div>
+                <div className="row g-2 mb-3">
+                  <div className="col-6">
+                     <label className="form-label">Amount</label>
+                     <div className="input-group">
+                       <span className="input-group-text bg-dark border-secondary text-white">₹</span>
+                       <input type="number" className="form-control p-2" placeholder="0" value={newReminder.amount} onChange={e => setNewReminder({...newReminder, amount: e.target.value})} />
+                     </div>
+                  </div>
+                  <div className="col-6">
+                     <label className="form-label">Due Date</label>
+                     <input type="date" className="form-control p-2" value={newReminder.dueDate} onChange={e => setNewReminder({...newReminder, dueDate: e.target.value})} />
+                  </div>
+                </div>
+                <div className="row g-2 mb-3">
+                  <div className="col-6">
+                    <label className="form-label">Category</label>
+                    <select className="form-select p-2" value={newReminder.category} onChange={e => setNewReminder({...newReminder, category: e.target.value})}>
+                      <option>Bills</option><option>Needs</option><option>Wants</option>
+                    </select>
+                  </div>
+                  <div className="col-6">
+                    <label className="form-label">Recurring</label>
+                    <select className="form-select p-2" value={newReminder.recurring} onChange={e => setNewReminder({...newReminder, recurring: e.target.value})}>
+                      <option>None</option><option>Monthly</option><option>Yearly</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer border-top border-secondary border-opacity-50">
+                <button className="btn btn-outline-secondary rounded-pill" onClick={() => setShowAddReminder(false)}>Cancel</button>
+                <button className="btn btn-cyan rounded-pill fw-bold px-4" onClick={() => {
+                  if (!newReminder.title.trim() || !newReminder.amount || !newReminder.dueDate) return;
+                  setReminders(prev => [...prev, {
+                    id: Date.now(),
+                    ...newReminder,
+                    amount: Number(newReminder.amount),
+                    autoDetected: false, paid: false
+                  }]);
+                  setNewReminder({ title: '', amount: '', dueDate: '', category: 'Bills', recurring: 'None' });
+                  setShowAddReminder(false);
+                }}>Add Reminder</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function ReflectTab({ transactions, disciplineScore, totalSpent, totalRegret, buffer, user, totalIncome }) {
+  const [chartWidth, setChartWidth] = useState(500);
+  const containerRef = React.useRef(null);
+  useEffect(() => {
+    const handleResize = () => { if (containerRef.current) setChartWidth(containerRef.current.offsetWidth); };
+    setTimeout(handleResize, 100);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const pieData = ['Bills', 'Needs', 'Wants'].map(cat => ({
     name: cat, value: transactions.filter(t => t.category === cat).reduce((s, t) => s + t.outflow, 0)
   })).filter(d => d.value > 0);
@@ -492,6 +732,26 @@ function ReflectTab({ transactions, disciplineScore, totalSpent, totalRegret, bu
   const catCounts = transactions.reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + 1; return acc; }, {});
   const mostFrequent = Object.keys(catCounts).sort((a,b)=>catCounts[b]-catCounts[a])[0];
   const maxOut = Math.max(...transactions.map(t=>t.outflow||0), 0);
+
+  const monthlyData = [
+    { month: 'Nov', spent: 38000, regret: 2100 },
+    { month: 'Dec', spent: 52000, regret: 6800 },
+    { month: 'Jan', spent: 41000, regret: 3200 },
+    { month: 'Feb', spent: 39000, regret: 1900 },
+    { month: 'Mar', spent: 44000, regret: 4100 },
+    { month: 'Apr', spent: totalSpent, regret: totalRegret }
+  ];
+
+  const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalSpent) / totalIncome) * 100) : 0;
+  const targetSavingsRate = 20;
+  const velocityGap = targetSavingsRate - savingsRate;
+
+  const lateNightCount = transactions.filter(t => parseInt(t.time) >= 22 && t.outflow > 0).length;
+  const lateNightAmount = transactions.filter(t => parseInt(t.time) >= 22 && t.outflow > 0).reduce((s,t) => s+t.outflow, 0);
+  const weekendTx = transactions.filter(t => [0,6].includes(new Date(t.date).getDay()) && t.outflow > 0);
+  const weekendAmount = weekendTx.reduce((s,t) => s+t.outflow, 0);
+  const dateGroups = transactions.filter(t=>t.outflow>0).reduce((acc, t) => { acc[t.date] = (acc[t.date] || 0) + t.outflow; return acc; }, {});
+  const mostExpDate = Object.keys(dateGroups).sort((a,b) => dateGroups[b] - dateGroups[a])[0] || 'N/A';
 
   return (
     <div>
@@ -514,22 +774,22 @@ function ReflectTab({ transactions, disciplineScore, totalSpent, totalRegret, bu
         </div>
       </div>
 
-      <div className="row g-4 mb-4">
-        <div className="col-md-7">
+      <div ref={containerRef} className="row g-4 mb-4">
+        <div className="col-12 col-md-7">
           <div className="glass-card p-4 h-100">
             <h5 className="mb-4">Spending by Category</h5>
             <div style={{height: 300}}>
-              <PieChart width={500} height={300}>
-                <Pie data={pieData} cx={250} cy={140} innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
+              {chartWidth > 0 && <PieChart width={chartWidth * (7/12) > 300 ? chartWidth * (7/12) : chartWidth} height={300}>
+                <Pie data={pieData} cx={(chartWidth * (7/12) > 300 ? chartWidth * (7/12) : chartWidth)/2} cy={140} innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
                   {pieData.map((e, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(val) => `₹${val}`} contentStyle={{background: '#1e1b4b', border: 'none', borderRadius: '8px', color: '#fff'}}/>
                 <Legend />
-              </PieChart>
+              </PieChart>}
             </div>
           </div>
         </div>
-        <div className="col-md-5">
+        <div className="col-12 col-md-5">
            <div className="glass-card p-4 h-100 d-flex flex-column gap-3">
              <h5 className="mb-2">Fast Facts</h5>
              <div className="p-3 bg-dark bg-opacity-25 rounded border border-secondary border-opacity-25 d-flex justify-content-between">
@@ -548,11 +808,11 @@ function ReflectTab({ transactions, disciplineScore, totalSpent, totalRegret, bu
         </div>
       </div>
 
-      <div className="row g-4">
-        <div className="col-md-8">
+      <div className="row g-4 mb-4">
+        <div className="col-12 col-md-8">
            <div className="glass-card p-4">
              <h5 className="mb-4">Regret Timeline (Normal vs Regret)</h5>
-             <BarChart width={700} height={250} data={barData}>
+             {chartWidth > 0 && <BarChart width={chartWidth * (8/12) > 300 ? chartWidth * (8/12) : chartWidth-30} height={250} data={barData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
                 <XAxis dataKey="category" stroke="#888" />
                 <YAxis stroke="#888" />
@@ -560,15 +820,55 @@ function ReflectTab({ transactions, disciplineScore, totalSpent, totalRegret, bu
                 <Legend />
                 <Bar dataKey="normal" name="Intentional Spend" stackId="a" fill="#38bdf8" />
                 <Bar dataKey="regret" name="Regret Spend" stackId="a" fill="#ef4444" radius={[4,4,0,0]} />
-             </BarChart>
+             </BarChart>}
            </div>
         </div>
-        <div className="col-md-4">
+        <div className="col-12 col-md-4">
            <div className="glass-card p-4 h-100 border border-info border-opacity-50">
              <h5 className="mb-3 d-flex align-items-center gap-2"><Brain className="text-info"/> Onboarding Insights</h5>
              {user.onboardingAnswers?.['2']?.includes('Credit card') && <div className="badge bg-danger p-2 mb-2 w-100 text-wrap text-start">⚠ Credit Card Debt Active — avoid discretionary spending</div>}
              {user.onboardingAnswers?.['5']?.includes('Emergency fund') && <div className="badge bg-info p-2 mb-2 w-100 text-wrap text-start text-dark">Emergency Fund Goal Active — assign ₹{Math.round(totalIncome * 0.2)} monthly</div>}
              {user.onboardingAnswers?.['6']?.includes('Dining out') && <div className="badge bg-success p-2 mb-2 w-100 text-wrap text-start">Dining Out is your guilt-free zone — not flagged as regret</div>}
+           </div>
+        </div>
+      </div>
+
+      <div className="row g-4 mb-4">
+        <div className="col-12 col-lg-8">
+           <div className="glass-card p-4 h-100">
+             <h5 className="mb-4">6-Month Spending Trend</h5>
+             {chartWidth > 0 && (
+               <RechartsLineChart width={chartWidth * (8/12) > 300 ? chartWidth * (8/12) : chartWidth-30} height={300} data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false}/>
+                  <XAxis dataKey="month" stroke="#888"/>
+                  <YAxis stroke="#888" tickFormatter={(val)=>`₹${val/1000}k`}/>
+                  <Tooltip contentStyle={{background: '#1e1b4b', border: 'none'}} />
+                  <Legend />
+                  <Line type="monotone" dataKey="spent" name="Total Spent" stroke="#38bdf8" strokeWidth={2} />
+                  <Line type="monotone" dataKey="regret" name="Regret" stroke="#ef4444" strokeWidth={2} />
+               </RechartsLineChart>
+             )}
+           </div>
+        </div>
+        <div className="col-12 col-lg-4 d-flex flex-column gap-4">
+           <div className={`glass-card p-4 h-100 border ${savingsRate >= 20 ? 'border-success' : 'border-warning'} border-opacity-50`}>
+             <h5 className="mb-3 d-flex align-items-center gap-2" style={{color: savingsRate >= 20 ? '#10b981' : '#f59e0b'}}><TrendingUp/> Savings Velocity</h5>
+             <h2 className="fw-bold mb-1">{savingsRate}%</h2>
+             <p className="small text-gray mb-3">Current vs 20% Target</p>
+             {savingsRate >= 20 ? (
+               <div className="alert-success-glass p-3 rounded small">On Track. You are saving {savingsRate}% of income.</div>
+             ) : (
+               <div className="alert-warning-glass p-3 rounded small">You need to save ₹{Math.round(totalIncome * (velocityGap/100))} more per month to hit the 20% target.</div>
+             )}
+           </div>
+
+           <div className="glass-card p-4 h-100">
+             <h5 className="mb-3 d-flex align-items-center gap-2 text-purple"><Brain/> Behavioral Patterns</h5>
+             <div className="small text-white opacity-75">
+               <div className="mb-2 pb-2 border-bottom border-secondary border-opacity-25">🌙 {lateNightCount} transactions worth <span className="fw-bold text-danger">₹{lateNightAmount}</span> happened after 10 PM</div>
+               <div className="mb-2 pb-2 border-bottom border-secondary border-opacity-25">🎉 <span className="fw-bold text-warning">₹{weekendAmount}</span> spent on weekends across {weekendTx.length} transactions</div>
+               <div className="mb-2 pb-2">📅 Your most expensive day was <span className="fw-bold text-cyan">{mostExpDate}</span></div>
+             </div>
            </div>
         </div>
       </div>
@@ -598,65 +898,124 @@ function AccountsTab({ transactions, bankAccounts, clearedBalance, unclearedBala
       </div>
 
       <div className="glass-card flex-grow-1 p-0 overflow-auto">
-        <table className="table table-hover mb-0">
-          <thead style={{position: 'sticky', top: 0, background: 'rgba(20,25,45,0.95)', zIndex: 10}}>
-            <tr><th width="40"><input type="checkbox" className="form-check-input" /></th><th width="40">🚩</th><th>ACCOUNT</th><th>DATE</th><th>PAYEE</th><th>CATEGORY</th><th>MEMO</th><th className="text-end">OUTFLOW</th><th className="text-end">INFLOW</th><th className="text-center">CLEARED</th></tr>
-          </thead>
-          <tbody>
-            {sortedTx.map(t => (
-              <tr key={t.id} className="cursor-pointer">
-                <td><input type="checkbox" className="form-check-input" /></td>
-                <td>{t.isRegret ? '⚠️' : ''}</td>
-                <td>{bankAccounts[0].name}</td>
-                <td className="text-gray">{t.date}</td>
-                <td className="fw-bold">{t.payee}</td>
-                <td><span className="badge border border-secondary text-gray">{t.category}</span></td>
-                <td className="text-gray small">{t.memo}</td>
-                <td className="text-end text-danger fw-bold">{t.outflow > 0 ? `₹${t.outflow}` : ''}</td>
-                <td className="text-end text-success fw-bold">{t.inflow > 0 ? `₹${t.inflow}` : ''}</td>
-                <td className="text-center">{t.cleared ? <CheckCircle2 size={16} className="text-success" /> : <div className="rounded-circle border border-gray d-inline-block" style={{width:16,height:16}}></div>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-responsive">
+          <table className="table table-hover mb-0" style={{minWidth: 800}}>
+            <thead style={{position: 'sticky', top: 0, background: 'rgba(20,25,45,0.95)', zIndex: 10}}>
+              <tr><th width="40"><input type="checkbox" className="form-check-input" /></th><th width="40">🚩</th><th className="d-none d-lg-table-cell">ACCOUNT</th><th>DATE</th><th>PAYEE</th><th>CATEGORY</th><th className="d-none d-lg-table-cell">MEMO</th><th className="text-end">OUTFLOW</th><th className="text-end">INFLOW</th><th className="text-center">CLEARED</th></tr>
+            </thead>
+            <tbody>
+              {sortedTx.map(t => (
+                <tr key={t.id} className="cursor-pointer">
+                  <td><input type="checkbox" className="form-check-input" /></td>
+                  <td>{t.isRegret ? '⚠️' : ''}</td>
+                  <td className="d-none d-lg-table-cell">{bankAccounts[0].name}</td>
+                  <td className="text-gray">{t.date}</td>
+                  <td className="fw-bold">{t.payee}</td>
+                  <td><span className="badge border border-secondary text-gray">{t.category}</span></td>
+                  <td className="text-gray small d-none d-lg-table-cell">{t.memo}</td>
+                  <td className="text-end text-danger fw-bold">{t.outflow > 0 ? `₹${t.outflow}` : ''}</td>
+                  <td className="text-end text-success fw-bold">{t.inflow > 0 ? `₹${t.inflow}` : ''}</td>
+                  <td className="text-center">{t.cleared ? <CheckCircle2 size={16} className="text-success" /> : <div className="rounded-circle border border-gray d-inline-block" style={{width:16,height:16}}></div>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
 
-function TradingTab({ stocks, totalRegret, futureValue, moneyLost, transactions }) {
+function TradingTab({ stocks, setStocks, totalRegret, futureValue, moneyLost, transactions }) {
+  const ALPHA_VANTAGE_KEY = 'demo';
+  const BSE_SYMBOL_MAP = {
+    'RELIANCE': 'RELIANCE.BSE',
+    'TCS': 'TCS.BSE',
+    'INFY': 'INFY.BSE',
+    'HDFC': 'HDFCBANK.BSE',
+    'WIPRO': 'WIPRO.BSE'
+  };
+
+  const [livePrices, setLivePrices] = useState({});
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [showAddStock, setShowAddStock] = useState(false);
+  const [newStock, setNewStock] = useState({symbol: '', name: '', buyPrice: '', quantity: ''});
+
+  const fetchLivePrice = async (symbol) => {
+    const bseSymbol = BSE_SYMBOL_MAP[symbol] || `${symbol}.BSE`;
+    try {
+      const res = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${bseSymbol}&apikey=${ALPHA_VANTAGE_KEY}`);
+      const data = await res.json();
+      const price = parseFloat(data['Global Quote']?.['05. price']);
+      if (!isNaN(price)) {
+        setLivePrices(prev => ({ ...prev, [symbol]: price }));
+      }
+    } catch (e) {
+      console.log('Price fetch failed for', symbol);
+    }
+  };
+
+  const fetchAllPrices = async () => {
+    setPriceLoading(true);
+    for (const stock of stocks) {
+      await fetchLivePrice(stock.symbol);
+      await new Promise(r => setTimeout(r, 1200)); 
+    }
+    setLastUpdated(new Date().toLocaleTimeString());
+    setPriceLoading(false);
+  };
+
+  useEffect(() => {
+    fetchAllPrices();
+  }, []);
+
   const growthData = Array.from({length: 11}, (_, i) => ({
     year: `Y${i}`, value: Math.round(totalRegret * Math.pow(1.08, i))
   }));
   return (
     <div className="d-flex flex-column gap-4">
       <div className="glass-card p-4">
-        <div className="d-flex justify-content-between align-items-center mb-4">
-          <h5 className="mb-0">My Portfolio</h5>
-          <button className="btn btn-sm btn-cyan rounded-pill">＋ Add Stock</button>
+        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-2">
+          <div className="d-flex align-items-center">
+            <h5 className="mb-0">My Portfolio</h5>
+            <button className="btn btn-sm btn-outline-info rounded-pill ms-3" onClick={fetchAllPrices} disabled={priceLoading}>
+              {priceLoading ? <span className="spinner-border spinner-border-sm"/> : '↻ Refresh Prices'}
+            </button>
+            {lastUpdated && <small className="text-gray ms-3">Last updated: {lastUpdated}</small>}
+          </div>
+          <button className="btn btn-sm btn-cyan rounded-pill w-100 w-md-auto" onClick={()=>setShowAddStock(true)}>＋ Add Stock</button>
         </div>
-        <table className="table table-hover">
-          <thead><tr><th>SYMBOL</th><th>COMPANY</th><th className="text-end">BUY PRICE</th><th className="text-center">QTY</th><th className="text-end">CURRENT</th><th className="text-end">P&L</th><th className="text-end">P&L %</th><th>ACTION</th></tr></thead>
-          <tbody>
-            {stocks.map(s => {
-              const pl = (s.currentPrice - s.buyPrice) * s.quantity;
-              const plPct = (((s.currentPrice - s.buyPrice) / s.buyPrice) * 100).toFixed(2);
-              const isProfit = pl >= 0;
-              return (
-                <tr key={s.id}>
-                  <td className="fw-bold text-cyan">{s.symbol}</td>
-                  <td>{s.name}</td>
-                  <td className="text-end">₹{s.buyPrice}</td>
-                  <td className="text-center">{s.quantity}</td>
-                  <td className="text-end fw-bold">₹{s.currentPrice}</td>
-                  <td className={`text-end fw-bold ${isProfit?'text-success':'text-danger'}`}>{isProfit?'+':''}₹{pl}</td>
-                  <td className={`text-end fw-bold ${isProfit?'text-success':'text-danger'}`}>{isProfit?'+':''}{plPct}%</td>
-                  <td><button className="btn btn-sm btn-outline-light rounded-pill px-3">Trade</button></td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <div className="table-responsive">
+          <table className="table table-hover">
+            <thead><tr><th>SYMBOL</th><th className="d-none d-md-table-cell">COMPANY</th><th className="text-end">BUY PRICE</th><th className="text-center">QTY</th><th className="text-end">CURRENT</th><th className="text-end">P&L</th><th className="text-end">P&L %</th><th>ACTION</th></tr></thead>
+            <tbody>
+              {stocks.map(s => {
+                const displayPrice = livePrices[s.symbol] || s.currentPrice;
+                const pl = Math.round((displayPrice - s.buyPrice) * s.quantity * 100)/100;
+                const plPct = (((displayPrice - s.buyPrice) / s.buyPrice) * 100).toFixed(2);
+                const isProfit = pl >= 0;
+                return (
+                  <tr key={s.id}>
+                    <td className="fw-bold text-cyan">{s.symbol}</td>
+                    <td className="d-none d-md-table-cell">{s.name}</td>
+                    <td className="text-end">₹{s.buyPrice}</td>
+                    <td className="text-center">{s.quantity}</td>
+                    <td className="text-end fw-bold">
+                      {livePrices[s.symbol] 
+                        ? <span className="text-cyan">₹{livePrices[s.symbol]} <span className="badge bg-success ms-1" style={{fontSize:'0.6rem'}}>LIVE</span></span>
+                        : <span className="text-gray">₹{s.currentPrice} <span className="badge bg-secondary ms-1" style={{fontSize:'0.6rem'}}>MOCK</span></span>
+                      }
+                    </td>
+                    <td className={`text-end fw-bold ${isProfit?'text-success':'text-danger'}`}>{isProfit?'+':''}₹{pl}</td>
+                    <td className={`text-end fw-bold ${isProfit?'text-success':'text-danger'}`}>{isProfit?'+':''}{plPct}%</td>
+                    <td><button className="btn btn-sm btn-outline-light rounded-pill px-3">Trade</button></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
         <div className="mt-2 row">
           {stocks.map(s => {
              const plPct = (((s.currentPrice - s.buyPrice) / s.buyPrice) * 100);
@@ -672,7 +1031,7 @@ function TradingTab({ stocks, totalRegret, futureValue, moneyLost, transactions 
         <div className="position-absolute top-0 end-0 p-4 opacity-25" style={{color: '#a855f7'}}><TrendingUp size={120} /></div>
         <h5 className="mb-4 d-flex align-items-center gap-2" style={{color: '#a855f7'}}><Brain/> What Could Your Regrets Have Built?</h5>
         <div className="row z-1 position-relative">
-          <div className="col-md-5">
+          <div className="col-12 col-md-5 mb-4 mb-md-0">
             <div className="p-4 bg-dark bg-opacity-50 rounded mb-4 border border-secondary border-opacity-25">
                <h6 className="text-gray mb-3">Total Regret Spending: <span className="text-danger fw-bold fs-5">₹{totalRegret}</span></h6>
                <p className="small mb-2">If invested at 8% annual return:</p>
@@ -696,39 +1055,103 @@ function TradingTab({ stocks, totalRegret, futureValue, moneyLost, transactions 
               ))}
             </div>
           </div>
-          <div className="col-md-7">
-             <RechartsLineChart width={600} height={400} data={growthData} margin={{top:20, right:30, left:20, bottom:5}}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false}/>
-                <XAxis dataKey="year" stroke="#888"/>
-                <YAxis stroke="#888"/>
-                <Tooltip contentStyle={{background: '#1e1b4b', border: '1px solid #a855f7'}} />
-                <Legend />
-                <Line type="monotone" dataKey="value" stroke="#38bdf8" strokeWidth={3} activeDot={{r: 8}} name="Projected Value" />
-             </RechartsLineChart>
+          <div className="col-12 col-md-7">
+             <div className="w-100 overflow-auto" style={{maxWidth: '100vw'}}>
+               <RechartsLineChart width={600} height={300} data={growthData} margin={{top:20, right:30, left:0, bottom:5}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false}/>
+                  <XAxis dataKey="year" stroke="#888"/>
+                  <YAxis stroke="#888"/>
+                  <Tooltip contentStyle={{background: '#1e1b4b', border: '1px solid #a855f7'}} />
+                  <Legend />
+                  <Line type="monotone" dataKey="value" stroke="#38bdf8" strokeWidth={3} activeDot={{r: 8}} name="Projected Value" />
+               </RechartsLineChart>
+             </div>
           </div>
         </div>
       </div>
+
+      {showAddStock && (
+        <div className="modal show d-block" style={{background:'rgba(0,0,0,0.7)', zIndex: 1055}}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content glass-card">
+              <div className="modal-header border-bottom border-secondary border-opacity-50">
+                <h5 className="modal-title fw-bold">Add Stock</h5>
+                <button type="button" className="btn-close" onClick={() => setShowAddStock(false)} />
+              </div>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">Symbol</label>
+                  <input className="form-control p-2" placeholder="e.g. RELIANCE" value={newStock.symbol} onChange={e => setNewStock({...newStock, symbol: e.target.value.toUpperCase()})} />
+                  <small className="text-gray d-block mt-1">Use NSE/BSE symbol (e.g. RELIANCE, TCS, INFY, WIPRO)</small>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Company Name</label>
+                  <input className="form-control p-2" placeholder="e.g. Reliance Industries" value={newStock.name} onChange={e => setNewStock({...newStock, name: e.target.value})} />
+                </div>
+                <div className="row g-2 mb-3">
+                  <div className="col-6">
+                     <label className="form-label">Buy Price</label>
+                     <div className="input-group">
+                       <span className="input-group-text bg-dark border-secondary text-white">₹</span>
+                       <input type="number" className="form-control p-2" placeholder="0" value={newStock.buyPrice} onChange={e => setNewStock({...newStock, buyPrice: e.target.value})} />
+                     </div>
+                  </div>
+                  <div className="col-6">
+                     <label className="form-label">Quantity</label>
+                     <input type="number" className="form-control p-2" value={newStock.quantity} onChange={e => setNewStock({...newStock, quantity: e.target.value})} />
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer border-top border-secondary border-opacity-50">
+                <button className="btn btn-outline-secondary rounded-pill" onClick={() => setShowAddStock(false)}>Cancel</button>
+                <button className="btn btn-cyan rounded-pill fw-bold px-4" onClick={() => {
+                  if (!newStock.symbol.trim() || !newStock.buyPrice || !newStock.quantity) return;
+                  const sym = newStock.symbol.trim();
+                  setStocks(prev => [...prev, {
+                    id: Date.now(),
+                    symbol: sym,
+                    name: newStock.name || sym,
+                    buyPrice: Number(newStock.buyPrice),
+                    quantity: Number(newStock.quantity),
+                    currentPrice: Number(newStock.buyPrice)
+                  }]);
+                  fetchLivePrice(sym);
+                  setNewStock({symbol: '', name: '', buyPrice: '', quantity: ''});
+                  setShowAddStock(false);
+                }}>Add Stock</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function ClockIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>; }
 
-function AddTransactionModal({ close, addTransaction, bankAccounts }) {
-  const [form, setForm] = useState({ payee:'', amount:'', category:'Bills', date:'', time:'', memo:'', account: bankAccounts[0]?.name||'', cleared: true, isRegret: false, type: 'Outflow' });
+function AddTransactionModal({ close, addTransaction, bankAccounts, budgetCategories }) {
+  const [form, setForm] = useState({ payee:'', amount:'', category:'', date:'', time:'', memo:'', account: bankAccounts[0]?.name||'', cleared: true, isRegret: false, type: 'Outflow' });
+  
+  useEffect(() => {
+    if (!form.category && budgetCategories && budgetCategories.length > 0) {
+      setForm(prev => ({ ...prev, category: budgetCategories[0].name }));
+    }
+  }, [budgetCategories]);
+
   const submit = (e) => {
     e.preventDefault();
     if(!form.payee || !form.amount) return;
     const isOut = form.type === 'Outflow';
     addTransaction({
-      id: Date.now(), payee: form.payee, amount: Number(form.amount), category: form.category,
+      id: Date.now(), payee: form.payee, amount: Number(form.amount), category: form.category || 'Income',
       date: form.date, time: form.time, memo: form.memo, cleared: form.cleared, isRegret: form.isRegret,
       outflow: isOut ? Number(form.amount) : 0, inflow: isOut ? 0 : Number(form.amount)
     });
     close();
   };
   return (
-    <div className="modal show d-block" style={{background:'rgba(0,0,0,0.7)', backdropFilter:'blur(5px)'}}>
+    <div className="modal show d-block" style={{background:'rgba(0,0,0,0.7)', backdropFilter:'blur(5px)', zIndex: 1055}}>
       <div className="modal-dialog modal-dialog-centered">
         <div className="modal-content glass-card">
           <div className="modal-header border-bottom border-secondary border-opacity-50">
@@ -749,9 +1172,16 @@ function AddTransactionModal({ close, addTransaction, bankAccounts }) {
               </div>
               <div className="row g-2 mb-2">
                 <div className="col-6">
-                  <select className="form-select p-2" value={form.category} onChange={e=>setForm({...form, category:e.target.value})}>
-                    {['Bills', 'Needs', 'Wants', 'Income'].map(c=><option key={c} value={c}>{c}</option>)}
-                  </select>
+                  {form.type === 'Outflow' ? (
+                    <select className="form-select p-2" value={form.category} onChange={e=>setForm({...form, category:e.target.value})}>
+                      <option value="" disabled>Select Category</option>
+                      {budgetCategories?.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                  ) : (
+                    <select className="form-select p-2" value={form.category} onChange={e=>setForm({...form, category:e.target.value})}>
+                      <option value="Income">Income</option>
+                    </select>
+                  )}
                 </div>
                 <div className="col-6">
                   <select className="form-select p-2" value={form.account} onChange={e=>setForm({...form, account:e.target.value})}>
