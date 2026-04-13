@@ -1254,7 +1254,7 @@ function AccountsTab({ transactions, setTransactions, bankAccounts, setBankAccou
 }
 
 function TradingTab({ stocks, setStocks, totalRegret, futureValue, moneyLost, transactions }) {
-  const ALPHA_VANTAGE_KEY = process.env.TRADING_API_KEY;
+  const ALPHA_VANTAGE_KEY = import.meta.env.VITE_TRADING_API_KEY;
   const BSE_SYMBOL_MAP = {
     'RELIANCE': 'RELIANCE.BSE',
     'TCS': 'TCS.BSE',
@@ -1548,8 +1548,12 @@ function SettingsTab({ pins, savePins, user }) {
   }
 
   const removePin = (section) => {
-    if (window.confirm(`Remove PIN protection for ${section}?`)) {
+    const entered = window.prompt(`Please enter your current 4-digit PIN for ${section} to remove protection:`);
+    if (entered === null) return;
+    if (entered === pins[section]) {
       savePins({ ...pins, [section]: null })
+    } else {
+      alert("Incorrect PIN. Protection was not removed.");
     }
   }
 
